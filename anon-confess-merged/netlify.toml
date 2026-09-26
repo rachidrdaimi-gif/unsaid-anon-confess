@@ -1,0 +1,30 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA fallback — not strictly required for this single-page app, but avoids
+# 404s if you ever add client-side routes later.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Security headers — none of these existed before. Without them the app
+# has no defense-in-depth against clickjacking (embedding it in a hidden
+# iframe on another site to trick users into tapping real buttons), MIME
+# sniffing, or a compromised/typo'd third-party script tag.
+# Adjust connect-src/img-src if you add more third-party services later
+# (this list covers Supabase's REST/Realtime/Auth/Functions endpoints and
+# Google's OAuth + font/avatar assets, which is everything this app
+# currently talks to).
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com; frame-src https://accounts.google.com; base-uri 'self'; form-action 'self'"

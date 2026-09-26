@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://unsaid-anon-confess.vercel.app/sitemap.xml
