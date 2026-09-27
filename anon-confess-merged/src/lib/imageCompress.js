@@ -10,7 +10,7 @@
  */
 export async function compressImageToJpeg(
   file,
-  { maxDimension = 512, maxBytes = 1024 * 1024, startQuality = 0.85, minQuality = 0.4 } = {}
+  { maxDimension = 150, maxBytes = 100 * 1024, startQuality = 0.85, minQuality = 0.4 } = {}
 ) {
   const bitmap = await loadBitmap(file)
 
@@ -22,8 +22,6 @@ export async function compressImageToJpeg(
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  // Flatten transparency onto white first — avatars render inside an
-  // opaque circle, and JPEG has no alpha channel of its own.
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, width, height)
   ctx.drawImage(bitmap, 0, 0, width, height)
