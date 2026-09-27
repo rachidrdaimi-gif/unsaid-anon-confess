@@ -10,12 +10,9 @@ const MAX_CHARS = 500
 
 export default function ConfessionForm({ pseudoId, onPosted }) {
   const [content, setContent] = useState('')
-  const [status, setStatus] = useState({ type: 'idle' }) // idle | error | posting | posted
+  const [status, setStatus] = useState({ type: 'idle' })
   const [showSupportNote, setShowSupportNote] = useState(false)
-  // Kept separately from `status` (which resets to idle after 2.5s and
-  // clears the textarea) so the just-posted id/text stays available for
-  // sharing even after the "Shared, anonymously." note fades.
-  const [justPosted, setJustPosted] = useState(null) // { id, content } | null
+  const [justPosted, setJustPosted] = useState(null)
   const [shareCopied, setShareCopied] = useState(false)
 
   const remaining = MAX_CHARS - content.length
@@ -26,8 +23,6 @@ export default function ConfessionForm({ pseudoId, onPosted }) {
     setContent(value)
     setShowSupportNote(needsSupportBanner(value))
     if (status.type === 'error') setStatus({ type: 'idle' })
-    // Starting a new confession retires the "share what you just posted"
-    // prompt for the previous one — it's still reachable from the feed itself.
     if (justPosted) setJustPosted(null)
   }
 
@@ -53,14 +48,6 @@ export default function ConfessionForm({ pseudoId, onPosted }) {
 
     setStatus({ type: 'posting' })
 
-    // SECURITY FIX (audit finding): posting used to be two separate
-    // requests — insert the post, then separately insert its owner
-    // token — which left a window where anyone watching the realtime
-    // feed could race to claim a freshly-created post's owner token
-    // before this browser's second request landed, then delete that
-    // post later using the (public) pseudo_id + their own claimed
-    // token. create_post() does both inserts in one atomic,
-    // server-side transaction, so that window no longer exists.
     const ownerToken = crypto.randomUUID()
 
     const { data, error } = await supabase.rpc('create_post', {
@@ -70,8 +57,6 @@ export default function ConfessionForm({ pseudoId, onPosted }) {
     })
 
     if (error) {
-      // Server-side rate limiter (Postgres function) rejects with this message
-      // if it fires even though the client-side check passed.
       const friendly = error.message?.includes('rate limit')
         ? 'Slow down a little — try again shortly.'
         : "Couldn't post right now. Please try again."
@@ -153,15 +138,17 @@ export default function ConfessionForm({ pseudoId, onPosted }) {
               {shareCopied ? 'Link copied' : 'Share it'}
             </button>
           )}
-          <button
-            type="submit"
-            disabled={
-              !content.trim() || overLimit || status.type === 'posting'
-            }
-            className="rounded-full bg-hush-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-hush-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {status.type === 'posting' ? 'Sharing…' : 'Share anonymously'}
-          </button>
+          {!(justPosted && !content.trim()) && (
+            <button
+              type="submit"
+              disabled={
+                !content.trim() || overLimit || status.type === 'posting'
+              }
+              className="rounded-full bg-hush-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-hush-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {status.type === 'posting' ? 'Sharing…' : 'Share anonymously'}
+            </button>
+          )}
         </div>
       </div>
     </form>
