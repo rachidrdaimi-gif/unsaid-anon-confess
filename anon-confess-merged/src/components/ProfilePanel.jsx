@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { signOut } from '../lib/authIdentity'
+import { compressImage } from '../lib/imageCompress'
 import { avatarStoragePath, setAvatarLocal } from '../lib/avatarCache'
 import Avatar from './Avatar'
 import ConfessionCard from './ConfessionCard'
@@ -203,9 +204,16 @@ export default function ProfilePanel({
     // picture fully replaces the old one instead of leaving it behind.
     const path = avatarStoragePath(pseudoId)
 
+    const blob = await compressImage(file).catch(() => null)
+    if (!blob) {
+      setAvatarBusy(false)
+      setAvatarError('Could not process that image.')
+      return
+    }
+
     const { error: uploadError } = await supabase.storage
       .from('avatars')
-      .upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type })
+      .upload(path, blob, { upsert: true, cacheControl: '3600', contentType: 'image/jpeg' })
 
     if (uploadError) {
       setAvatarBusy(false)
