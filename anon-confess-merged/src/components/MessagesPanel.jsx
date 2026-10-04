@@ -13,7 +13,7 @@ import {
 import Avatar from './Avatar'
 
 const PSEUDO_RE = /^#AnonUser[0-9]{4,6}$/
-const MAX_LEN = 1000
+const MAX_LEN = 100
 
 function timeAgo(isoString) {
   const seconds = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)

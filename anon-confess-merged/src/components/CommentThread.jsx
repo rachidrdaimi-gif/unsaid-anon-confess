@@ -176,7 +176,6 @@ export default function CommentThread({ postId, pseudoId, open, onOpenProfile, i
       )}
 
       <form onSubmit={handleSubmit} className="flex items-center gap-2 pt-1">
-        <span className="text-[10px] text-zinc-600 tabular-nums">{50 - text.length}</span>
         <input
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, 50))}

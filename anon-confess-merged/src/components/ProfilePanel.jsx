@@ -4,6 +4,7 @@ import { signOut } from '../lib/authIdentity'
 import { compressImage } from '../lib/imageCompress'
 import { avatarStoragePath, setAvatarLocal } from '../lib/avatarCache'
 import Avatar from './Avatar'
+import LinkGoogleButton from './LinkGoogleButton'
 import ConfessionCard from './ConfessionCard'
 
 
@@ -368,6 +369,12 @@ export default function ProfilePanel({
               Sign in to keep {pseudoId} the same across devices
             </button>
           )
+        )}
+
+        {isOwnProfile && isSignedIn && (
+          <div className="mb-4">
+            <LinkGoogleButton />
+          </div>
         )}
 
         {isAdmin && !isOwnProfile && (
