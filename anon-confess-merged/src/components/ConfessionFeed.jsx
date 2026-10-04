@@ -25,9 +25,10 @@ function tag(list, round) {
   return list.map((p) => ({ ...p, _k: `${p.id}:${round}`, _r: round }))
 }
 
-// Endless feed: when every confession has been shown, a freshly shuffled
-// round of the same pool is appended (tiny pools do not loop).
-const MIN_POOL_TO_LOOP = 5
+// Endless feed: only when there are MORE than this many confessions, a
+// freshly shuffled round of the same pool is appended once everything has
+// been shown. With 50 or fewer the feed simply ends (no repeats).
+const LOOP_ABOVE = 50
 
 function shuffle(list) {
   const a = [...list]
@@ -95,7 +96,7 @@ export default function ConfessionFeed({ refreshSignal, pseudoId, onlyLiked, blo
       const shown = cur.shown + PAGE_SIZE
       if (shown > items.length) {
         const base = items.filter((p) => p._r === 0)
-        if (base.length >= MIN_POOL_TO_LOOP) {
+        if (base.length > LOOP_ABOVE) {
           round += 1
           let next = shuffle(base)
           // avoid showing the same post twice in a row at the seam
@@ -202,7 +203,8 @@ export default function ConfessionFeed({ refreshSignal, pseudoId, onlyLiked, blo
   } else {
     visiblePosts = feed.items.slice(0, feed.shown).filter((p) => !blocked.has(p.pseudo_id))
   }
-  const hasMore = !onlyLiked && feed.items.length >= MIN_POOL_TO_LOOP
+  const canLoop = feed.items.filter((p) => p._r === 0).length > LOOP_ABOVE
+  const hasMore = !onlyLiked && (feed.shown < feed.items.length || canLoop)
 
   const showPinned = pinnedPost && !blocked.has(pinnedPost.pseudo_id) && !visiblePosts.some((p) => p.id === pinnedPost.id)
 
@@ -262,12 +264,13 @@ export default function ConfessionFeed({ refreshSignal, pseudoId, onlyLiked, blo
         <ConfessionCard
           key={post._k}
           post={post}
+          menuKey={post._k}
           pseudoId={pseudoId}
           onBlocked={onBlocked}
           onDeleted={handleDeleted}
-          menuOpen={openMenuPostId === post.id}
+          menuOpen={openMenuPostId === post._k}
           onToggleMenu={setOpenMenuPostId}
-          commentsOpen={openCommentsPostId === post.id}
+          commentsOpen={openCommentsPostId === post._k}
           onToggleComments={setOpenCommentsPostId}
           onOpenProfile={onOpenProfile}
           isAdmin={isAdmin}

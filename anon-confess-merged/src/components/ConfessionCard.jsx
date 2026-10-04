@@ -20,13 +20,18 @@ function timeAgo(isoString) {
   return `${days}d ago`
 }
 
-export default function ConfessionCard({ post, pseudoId, onBlocked, onDeleted, menuOpen, onToggleMenu, commentsOpen, onToggleComments, onOpenProfile, isAdmin, blockedIds, isSignedIn, onRequestSignIn }) {
+export default function ConfessionCard({ post, menuKey, pseudoId, onBlocked, onDeleted, menuOpen, onToggleMenu, commentsOpen, onToggleComments, onOpenProfile, isAdmin, blockedIds, isSignedIn, onRequestSignIn }) {
   const [reportOpen, setReportOpen] = useState(false)
   const [reportSent, setReportSent] = useState(false)
   const [reportBusy, setReportBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
   const [linkCopied, setLinkCopied] = useState(false)
+
+  // The same confession can appear more than once on the endless feed.
+  // menuKey is unique per appearance, so a menu/comments panel opens only
+  // for the exact card that was tapped, never for its twin further down.
+  const cardKey = menuKey ?? post.id
 
   const isOwnPost = post.pseudo_id === pseudoId
   // UX/SECURITY FIX (audit finding): showing "Delete" here whenever
@@ -128,6 +133,23 @@ export default function ConfessionCard({ post, pseudoId, onBlocked, onDeleted, m
     onDeleted?.(post.id)
   }
 
+  // Admin-only: remove any post, reported or not.
+  async function handleAdminDelete() {
+    if (!window.confirm('Admin: delete this post for everyone? This cannot be undone.')) return
+    setDeleteBusy(true)
+    setDeleteError(null)
+    const { data, error } = await supabase.functions.invoke('admin-moderation', {
+      body: { action: 'delete_post', payload: { post_id: post.id } },
+    })
+    setDeleteBusy(false)
+    if (error) {
+      setDeleteError(data?.error || "Couldn't delete this right now.")
+      return
+    }
+    onToggleMenu(null)
+    onDeleted?.(post.id)
+  }
+
   return (
     <article className="relative animate-fade-up rounded-2xl border border-white/10 bg-base-900/50 p-4 sm:p-5 shadow-lg shadow-black/20">
       {/* soft gradient wash, purely decorative — rounded itself so it never
@@ -164,7 +186,7 @@ export default function ConfessionCard({ post, pseudoId, onBlocked, onDeleted, m
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => onToggleComments(commentsOpen ? null : post.id)}
+              onClick={() => onToggleComments(commentsOpen ? null : cardKey)}
               aria-expanded={commentsOpen}
               aria-label="Comments"
               className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200"
@@ -179,7 +201,7 @@ export default function ConfessionCard({ post, pseudoId, onBlocked, onDeleted, m
             <div className="relative shrink-0" ref={menuRef}>
               <button
                 type="button"
-                onClick={() => onToggleMenu(menuOpen ? null : post.id)}
+                onClick={() => onToggleMenu(menuOpen ? null : cardKey)}
                 aria-label="More options"
                 className="text-zinc-600 hover:text-zinc-300 px-1"
               >
@@ -203,19 +225,7 @@ export default function ConfessionCard({ post, pseudoId, onBlocked, onDeleted, m
                       >
                         Report
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onToggleMenu(null)
-                          onRequestSignIn?.()
-                        }}
-                        className="block w-full px-3 py-1.5 text-left text-zinc-500 hover:bg-white/5"
-                        title="Sign in to report a post"
-                      >
-                        Sign in to report
-                      </button>
-                    )
+                    ) : null
                   ) : (
                     <span className="block px-3 py-1.5 text-zinc-500">Reported</span>
                   )}
@@ -244,6 +254,16 @@ export default function ConfessionCard({ post, pseudoId, onBlocked, onDeleted, m
                       className="block w-full px-3 py-1.5 text-left text-rose-400 hover:bg-white/5 disabled:opacity-40"
                     >
                       {deleteBusy ? 'Deleting…' : 'Delete'}
+                    </button>
+                  )}
+                  {isAdmin && !canDelete && (
+                    <button
+                      type="button"
+                      disabled={deleteBusy}
+                      onClick={handleAdminDelete}
+                      className="block w-full px-3 py-1.5 text-left text-rose-400 hover:bg-white/5 disabled:opacity-40"
+                    >
+                      {deleteBusy ? 'Deleting…' : 'Delete (admin)'}
                     </button>
                   )}
                 </div>

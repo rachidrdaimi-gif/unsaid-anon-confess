@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
     return json({ ok: true })
   }
 
-  if (action === 'delete_reported_post') {
+  if (action === 'delete_reported_post' || action === 'delete_post') {
     const postId = payload?.post_id
     if (!postId || typeof postId !== 'string') {
       return json({ error: 'post_id is required.' }, 400)
