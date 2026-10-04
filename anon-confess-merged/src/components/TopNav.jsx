@@ -67,7 +67,10 @@ export default function TopNav({ pseudoId, activeTab, onTabChange, onOpenProfile
           </div>
         </div>
 
-        {!authReady ? null : isSignedIn ? (
+        {/* Profile button for everyone — signed in or not. Visitors without an
+            account see the posts made from this browser's anonymous id, and
+            can sign in from inside the profile panel. */}
+        {authReady && (
           <button
             type="button"
             onClick={onOpenProfile}
@@ -84,17 +87,6 @@ export default function TopNav({ pseudoId, activeTab, onTabChange, onOpenProfile
               }
             />
             <span className="text-[10px] font-medium tracking-wide">PROFILE</span>
-          </button>
-        ) : (
-          // Visitors without an account don't get a profile button. They do
-          // need *some* way to create/enter an account (messages and
-          // profile pictures require one), so this replaces it.
-          <button
-            type="button"
-            onClick={onRequestSignIn}
-            className="shrink-0 rounded-2xl border border-hush-500/30 bg-hush-500/10 px-3 py-3 text-xs font-medium text-hush-300 hover:bg-hush-500/20"
-          >
-            Sign in
           </button>
         )}
       </div>
