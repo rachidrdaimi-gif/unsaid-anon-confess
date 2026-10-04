@@ -11,10 +11,17 @@ import NotificationsPanel from './components/NotificationsPanel'
 import SearchPanel from './components/SearchPanel'
 import AuthModal from './components/AuthModal'
 import AdminPanel from './components/AdminPanel'
+import TrendingFeed from './components/TrendingFeed'
+import MessagesPanel from './components/MessagesPanel'
+import MessagesFab from './components/MessagesFab'
 
 export default function App() {
   const [pseudoId, setPseudoId] = useState(getPseudoId)
   const [isSignedIn, setIsSignedIn] = useState(false)
+  // False until the first session check finishes, so a returning member
+  // doesn't see a "Sign in" button flash in the corner before their
+  // profile button appears.
+  const [authReady, setAuthReady] = useState(false)
   // Whether THIS signed-in account is a moderator — checked server-side via
   // am_i_admin() (see schema.sql section 17), never assumed client-side.
   // Only used to decide whether CommentThread shows a delete button on
@@ -26,6 +33,13 @@ export default function App() {
   const [authOpen, setAuthOpen] = useState(false)
   const [authInitialMode, setAuthInitialMode] = useState(null)
   const [adminOpen, setAdminOpen] = useState(false)
+  // Home shows either the newest confessions or the trending ones.
+  const [feedMode, setFeedMode] = useState('latest')
+  // Private messages (registered accounts only). messagesPeer, when set,
+  // opens straight into that conversation; null opens the list.
+  const [messagesOpen, setMessagesOpen] = useState(false)
+  const [messagesPeer, setMessagesPeer] = useState(null)
+  const [messagesClosedCount, setMessagesClosedCount] = useState(0)
   // Which pseudo_id's profile is open, if any — null means closed, and
   // when open it may be either this browser's own id (from the PROFILE
   // button) or someone else's (from tapping their name/avatar on a post
@@ -52,6 +66,27 @@ export default function App() {
     setViewingPseudoId(targetPseudoId ?? pseudoId)
   }
 
+  function handleOpenMessages(peerPseudoId) {
+    setViewingPseudoId(null)
+    if (!isSignedIn) {
+      setAuthOpen(true)
+      return
+    }
+    setMessagesPeer(peerPseudoId ?? null)
+    setMessagesOpen(true)
+  }
+
+  function handleCloseMessages() {
+    setMessagesOpen(false)
+    setMessagesPeer(null)
+    setMessagesClosedCount((n) => n + 1)
+  }
+
+  // Signing out while the messages panel is open must close it.
+  useEffect(() => {
+    if (!isSignedIn) setMessagesOpen(false)
+  }, [isSignedIn])
+
   useEffect(() => {
     let active = true
 
@@ -72,7 +107,10 @@ export default function App() {
       }
     }
 
-    supabase.auth.getSession().then(({ data }) => syncFromSession(data.session))
+    supabase.auth.getSession().then(async ({ data }) => {
+      await syncFromSession(data.session)
+      if (active) setAuthReady(true)
+    })
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       syncFromSession(session)
@@ -103,26 +141,63 @@ export default function App() {
   return (
     <div className="min-h-screen pb-16">
       <TopNav
+        pseudoId={pseudoId}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onOpenProfile={() => handleOpenProfile(pseudoId)}
+        isSignedIn={isSignedIn}
+        authReady={authReady}
+        onRequestSignIn={() => setAuthOpen(true)}
       />
 
       <main className="mx-auto max-w-2xl px-4 pt-6 space-y-6">
         {activeTab === 'home' && (
           <>
             <ConfessionForm pseudoId={pseudoId} onPosted={() => setRefreshSignal((n) => n + 1)} />
-            <ConfessionFeed
-              refreshSignal={refreshSignal}
-              pseudoId={pseudoId}
-              blockedIds={blockedIds}
-              onBlocked={handleBlock}
-              focusPostId={focusPostId}
-              onOpenProfile={handleOpenProfile}
-              isAdmin={isAdmin}
-              isSignedIn={isSignedIn}
-              onRequestSignIn={() => setAuthOpen(true)}
-            />
+            <div className="flex gap-2">
+              {[
+                { id: 'latest', label: 'Latest' },
+                { id: 'trending', label: 'Trending' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setFeedMode(m.id)}
+                  aria-pressed={feedMode === m.id}
+                  className={`rounded-full border px-4 py-1.5 text-xs font-medium transition ${
+                    feedMode === m.id
+                      ? 'border-hush-500/40 bg-hush-500/15 text-hush-300'
+                      : 'border-white/10 text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            {feedMode === 'latest' ? (
+              <ConfessionFeed
+                refreshSignal={refreshSignal}
+                pseudoId={pseudoId}
+                blockedIds={blockedIds}
+                onBlocked={handleBlock}
+                focusPostId={focusPostId}
+                onOpenProfile={handleOpenProfile}
+                isAdmin={isAdmin}
+                isSignedIn={isSignedIn}
+                onRequestSignIn={() => setAuthOpen(true)}
+              />
+            ) : (
+              <TrendingFeed
+                refreshSignal={refreshSignal}
+                pseudoId={pseudoId}
+                blockedIds={blockedIds}
+                onBlocked={handleBlock}
+                onOpenProfile={handleOpenProfile}
+                isAdmin={isAdmin}
+                isSignedIn={isSignedIn}
+                onRequestSignIn={() => setAuthOpen(true)}
+              />
+            )}
           </>
         )}
         {activeTab === 'liked' && (
@@ -166,6 +241,7 @@ export default function App() {
           onBlock={handleBlock}
           isAdmin={isAdmin}
           onOpenProfile={handleOpenProfile}
+          onMessage={handleOpenMessages}
         />
       )}
 
@@ -175,6 +251,14 @@ export default function App() {
           currentPseudoId={pseudoId}
           initialMode={authInitialMode}
         />
+      )}
+
+      {isSignedIn && !messagesOpen && (
+        <MessagesFab ownPseudoId={pseudoId} onOpen={handleOpenMessages} refreshKey={messagesClosedCount} />
+      )}
+
+      {messagesOpen && isSignedIn && (
+        <MessagesPanel ownPseudoId={pseudoId} initialPeer={messagesPeer} onClose={handleCloseMessages} />
       )}
 
       {adminOpen && (

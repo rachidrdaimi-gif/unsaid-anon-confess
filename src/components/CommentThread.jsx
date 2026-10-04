@@ -142,7 +142,7 @@ export default function CommentThread({ postId, pseudoId, open, onOpenProfile, i
             isAdmin || (c.pseudo_id === pseudoId && (isSignedIn || Boolean(getCommentOwnerToken(c.id))))
           return (
             <div key={c.id} className="flex items-start gap-2 group">
-              <Avatar pseudoId={c.pseudo_id} size={20} onClick={() => onOpenProfile?.(c.pseudo_id)} className="mt-0.5" />
+              <Avatar pseudoId={c.pseudo_id} size={28} onClick={() => onOpenProfile?.(c.pseudo_id)} className="mt-0.5" />
               <div className="flex-1 min-w-0">
                 <button
                   type="button"

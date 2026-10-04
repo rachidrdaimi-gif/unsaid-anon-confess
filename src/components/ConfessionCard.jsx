@@ -150,7 +150,7 @@ export default function ConfessionCard({ post, pseudoId, onBlocked, onDeleted, m
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs text-zinc-500 shrink-0">
-            <Avatar pseudoId={post.pseudo_id} size={24} onClick={() => onOpenProfile?.(post.pseudo_id)} />
+            <Avatar pseudoId={post.pseudo_id} size={32} onClick={() => onOpenProfile?.(post.pseudo_id)} />
             <button
               type="button"
               onClick={() => onOpenProfile?.(post.pseudo_id)}

@@ -2694,3 +2694,360 @@ $$;
 
 revoke all on function public.react_to_post(uuid, text, text, uuid) from public;
 grant execute on function public.react_to_post(uuid, text, text, uuid) to anon, authenticated;
+
+
+-- =============================================================================
+-- 32. Private messages between registered accounts.
+--     Lets one signed-in account write privately to another (to talk, share
+--     what they're going through, support each other). Design:
+--       * Registered accounts only, on BOTH ends. An unregistered visitor has
+--         no server-verifiable identity (only a localStorage id), so letting
+--         them send/receive would make impersonation trivial.
+--       * Nobody can insert/update/delete rows directly: all writes go through
+--         the SECURITY DEFINER functions below, which derive the sender from
+--         auth.uid() (never from a client-supplied id).
+--       * The same server-side content floor used for posts/comments applies.
+--       * Per-recipient blocking (message_blocks), hourly message cap, and a
+--         daily cap on starting NEW conversations to limit spam/harassment.
+--       * Messages are stored as plain text (NOT end-to-end encrypted):
+--         anyone with database access could read them.
+-- =============================================================================
+
+create or replace function public.my_pseudo_id()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.pseudo_id from public.profiles p where p.user_id = auth.uid();
+$$;
+
+revoke all on function public.my_pseudo_id() from public, anon;
+grant execute on function public.my_pseudo_id() to authenticated;
+
+create table if not exists public.direct_messages (
+  id               uuid primary key default gen_random_uuid(),
+  sender_pseudo    text not null,
+  recipient_pseudo text not null,
+  content          text not null,
+  created_at       timestamptz not null default now(),
+  read_at          timestamptz,
+  constraint dm_sender_format    check (sender_pseudo    ~ '^#AnonUser[0-9]{4,6}$'),
+  constraint dm_recipient_format check (recipient_pseudo ~ '^#AnonUser[0-9]{4,6}$'),
+  constraint dm_not_self         check (sender_pseudo <> recipient_pseudo),
+  constraint dm_content_length   check (char_length(content) between 1 and 1000)
+);
+
+create index if not exists dm_pair_idx
+  on public.direct_messages (sender_pseudo, recipient_pseudo, created_at desc);
+create index if not exists dm_unread_idx
+  on public.direct_messages (recipient_pseudo, read_at);
+
+alter table public.direct_messages enable row level security;
+
+drop policy if exists "participants can read their messages" on public.direct_messages;
+create policy "participants can read their messages"
+  on public.direct_messages for select
+  to authenticated
+  using (
+    sender_pseudo = public.my_pseudo_id()
+    or recipient_pseudo = public.my_pseudo_id()
+  );
+-- Deliberately NO insert/update/delete policy for any client role.
+
+create table if not exists public.message_blocks (
+  blocker_pseudo text not null,
+  blocked_pseudo text not null,
+  created_at     timestamptz not null default now(),
+  primary key (blocker_pseudo, blocked_pseudo)
+);
+alter table public.message_blocks enable row level security;
+-- No policies: only the functions below touch this table.
+
+-- Realtime so a new message shows up without a refresh (the app also polls
+-- as a fallback). Wrapped so re-running this file doesn't fail.
+do $$
+begin
+  alter publication supabase_realtime add table public.direct_messages;
+exception when duplicate_object then
+  null;
+end $$;
+
+-- Can the signed-in caller message this pseudo_id? (registered, not banned,
+-- and hasn't blocked the caller). Used to enable/disable the Message button.
+create or replace function public.pseudo_accepts_messages(p_pseudo text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    public.my_pseudo_id() is not null
+    and p_pseudo <> public.my_pseudo_id()
+    and exists (select 1 from public.profiles pr where pr.pseudo_id = p_pseudo)
+    and not public.is_pseudo_banned(p_pseudo)
+    and not exists (
+      select 1 from public.message_blocks b
+       where b.blocker_pseudo = p_pseudo
+         and b.blocked_pseudo = public.my_pseudo_id()
+    ),
+    false
+  );
+$$;
+
+revoke all on function public.pseudo_accepts_messages(text) from public, anon;
+grant execute on function public.pseudo_accepts_messages(text) to authenticated;
+
+create or replace function public.send_direct_message(p_to text, p_content text)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me text;
+  clean text;
+  new_id uuid;
+  sent_last_hour integer;
+  new_convos_today integer;
+  already_talking boolean;
+begin
+  if auth.role() <> 'authenticated' then
+    raise exception 'sign in required to send messages';
+  end if;
+
+  me := public.my_pseudo_id();
+  if me is null then
+    raise exception 'sign in required to send messages';
+  end if;
+
+  if p_to is null or p_to !~ '^#AnonUser[0-9]{4,6}$' then
+    raise exception 'invalid recipient';
+  end if;
+
+  if public.is_pseudo_banned(me) then
+    raise exception 'this account has been banned by a moderator';
+  end if;
+
+  if not public.pseudo_accepts_messages(p_to) then
+    raise exception 'this person can''t receive messages';
+  end if;
+
+  clean := btrim(coalesce(p_content, ''));
+  if char_length(clean) < 1 or char_length(clean) > 1000 then
+    raise exception 'message must be 1 to 1000 characters';
+  end if;
+
+  perform public.enforce_content_floor(clean);
+
+  select count(*) into sent_last_hour
+    from public.direct_messages
+   where sender_pseudo = me and created_at > now() - interval '1 hour';
+  if sent_last_hour >= 60 then
+    raise exception 'slow down: too many messages in the last hour';
+  end if;
+
+  select exists (
+    select 1 from public.direct_messages d
+     where (d.sender_pseudo = me and d.recipient_pseudo = p_to)
+        or (d.sender_pseudo = p_to and d.recipient_pseudo = me)
+  ) into already_talking;
+
+  if not already_talking then
+    select count(distinct d.recipient_pseudo) into new_convos_today
+      from public.direct_messages d
+     where d.sender_pseudo = me
+       and d.created_at > now() - interval '24 hours';
+    if new_convos_today >= 10 then
+      raise exception 'slow down: too many new conversations today';
+    end if;
+  end if;
+
+  insert into public.direct_messages (sender_pseudo, recipient_pseudo, content)
+  values (me, p_to, clean)
+  returning id into new_id;
+
+  return new_id;
+end;
+$$;
+
+revoke all on function public.send_direct_message(text, text) from public, anon;
+grant execute on function public.send_direct_message(text, text) to authenticated;
+
+-- One row per person I've talked with: latest message + my unread count.
+-- People I've blocked are left out.
+create or replace function public.my_conversations()
+returns table (
+  other_pseudo text,
+  last_content text,
+  last_at timestamptz,
+  last_from_me boolean,
+  unread_count bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with me as (select public.my_pseudo_id() as id),
+  mine as (
+    select
+      case when d.sender_pseudo = me.id then d.recipient_pseudo else d.sender_pseudo end as oth,
+      d.content as body,
+      d.created_at as ts,
+      (d.sender_pseudo = me.id) as from_me
+    from public.direct_messages d, me
+    where me.id is not null
+      and (d.sender_pseudo = me.id or d.recipient_pseudo = me.id)
+  ),
+  latest as (
+    select distinct on (oth) oth, body, ts, from_me
+    from mine
+    order by oth, ts desc
+  ),
+  unread as (
+    select d.sender_pseudo as oth, count(*) as cnt
+    from public.direct_messages d, me
+    where d.recipient_pseudo = me.id and d.read_at is null
+    group by d.sender_pseudo
+  )
+  select l.oth, l.body, l.ts, l.from_me, coalesce(u.cnt, 0)::bigint
+  from latest l
+  left join unread u on u.oth = l.oth
+  where not exists (
+    select 1 from public.message_blocks b, me
+     where b.blocker_pseudo = me.id and b.blocked_pseudo = l.oth
+  )
+  order by l.ts desc;
+$$;
+
+revoke all on function public.my_conversations() from public, anon;
+grant execute on function public.my_conversations() to authenticated;
+
+create or replace function public.get_conversation(p_other text, p_limit integer default 200)
+returns table (
+  id uuid,
+  sender_pseudo text,
+  recipient_pseudo text,
+  content text,
+  created_at timestamptz,
+  read_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select t.id, t.sender_pseudo, t.recipient_pseudo, t.content, t.created_at, t.read_at
+  from (
+    select d.id, d.sender_pseudo, d.recipient_pseudo, d.content, d.created_at, d.read_at
+    from public.direct_messages d
+    where public.my_pseudo_id() is not null
+      and (
+        (d.sender_pseudo = public.my_pseudo_id() and d.recipient_pseudo = p_other)
+        or (d.sender_pseudo = p_other and d.recipient_pseudo = public.my_pseudo_id())
+      )
+    order by d.created_at desc
+    limit least(greatest(coalesce(p_limit, 200), 1), 500)
+  ) t
+  order by t.created_at asc;
+$$;
+
+revoke all on function public.get_conversation(text, integer) from public, anon;
+grant execute on function public.get_conversation(text, integer) to authenticated;
+
+create or replace function public.mark_conversation_read(p_other text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.direct_messages d
+     set read_at = now()
+   where d.recipient_pseudo = public.my_pseudo_id()
+     and d.sender_pseudo = p_other
+     and d.read_at is null;
+$$;
+
+revoke all on function public.mark_conversation_read(text) from public, anon;
+grant execute on function public.mark_conversation_read(text) to authenticated;
+
+create or replace function public.unread_message_count()
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)
+  from public.direct_messages d
+  where d.recipient_pseudo = public.my_pseudo_id()
+    and d.read_at is null
+    and not exists (
+      select 1 from public.message_blocks b
+       where b.blocker_pseudo = d.recipient_pseudo
+         and b.blocked_pseudo = d.sender_pseudo
+    );
+$$;
+
+revoke all on function public.unread_message_count() from public, anon;
+grant execute on function public.unread_message_count() to authenticated;
+
+create or replace function public.set_message_block(p_pseudo text, p_blocked boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me text := public.my_pseudo_id();
+begin
+  if me is null then
+    raise exception 'sign in required';
+  end if;
+  if p_pseudo is null or p_pseudo !~ '^#AnonUser[0-9]{4,6}$' or p_pseudo = me then
+    raise exception 'invalid pseudo id';
+  end if;
+
+  if p_blocked then
+    insert into public.message_blocks (blocker_pseudo, blocked_pseudo)
+    values (me, p_pseudo)
+    on conflict do nothing;
+  else
+    delete from public.message_blocks
+     where blocker_pseudo = me and blocked_pseudo = p_pseudo;
+  end if;
+end;
+$$;
+
+revoke all on function public.set_message_block(text, boolean) from public, anon;
+grant execute on function public.set_message_block(text, boolean) to authenticated;
+
+create or replace function public.am_i_blocking_messages_from(p_pseudo text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.message_blocks b
+     where b.blocker_pseudo = public.my_pseudo_id()
+       and b.blocked_pseudo = p_pseudo
+  );
+$$;
+
+revoke all on function public.am_i_blocking_messages_from(text) from public, anon;
+grant execute on function public.am_i_blocking_messages_from(text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 33. Profile pictures are no longer compressed in the browser, so the
+--     avatars bucket must accept the original file: common image types,
+--     up to 10 MB. (Raise or lower file_size_limit to fit your storage plan.)
+-- -----------------------------------------------------------------------------
+update storage.buckets
+   set file_size_limit = 10485760,
+       allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+ where id = 'avatars';

@@ -10,7 +10,7 @@ function initialsFromPseudoId(pseudoId) {
  * exists, otherwise the first couple digits of the anonymous id as a
  * placeholder. Clicking it opens that pseudo_id's public profile, same as
  * clicking their name (see ConfessionCard.jsx / CommentThread.jsx). */
-export default function Avatar({ pseudoId, size = 32, onClick, className = '' }) {
+export default function Avatar({ pseudoId, size = 32, onClick, className = '', fallback = null }) {
   const [url, setUrl] = useState(() => getCachedAvatar(pseudoId) ?? null)
 
   useEffect(() => {
@@ -22,19 +22,24 @@ export default function Avatar({ pseudoId, size = 32, onClick, className = '' })
 
   const dim = `${size}px`
 
+  // Not clickable (e.g. inside the nav's PROFILE button, which is already a
+  // button) -> render a plain span so we never nest a button in a button.
+  const Tag = onClick ? 'button' : 'span'
+  const tagProps = onClick
+    ? { type: 'button', onClick, 'aria-label': `View ${pseudoId}'s profile` }
+    : {}
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`View ${pseudoId}'s profile`}
+    <Tag
+      {...tagProps}
       className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-base-800 text-zinc-500 ${className}`}
       style={{ width: dim, height: dim, fontSize: `${Math.max(9, size * 0.38)}px` }}
     >
       {url ? (
         <img src={url} alt="" className="h-full w-full object-cover" />
       ) : (
-        <span className="font-medium tabular-nums">{initialsFromPseudoId(pseudoId)}</span>
+        fallback ?? <span className="font-medium tabular-nums">{initialsFromPseudoId(pseudoId)}</span>
       )}
-    </button>
+    </Tag>
   )
 }

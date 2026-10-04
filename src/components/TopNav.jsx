@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import Avatar from './Avatar'
 
-export default function TopNav({ activeTab, onTabChange, onOpenProfile }) {
+export default function TopNav({ pseudoId, activeTab, onTabChange, onOpenProfile, isSignedIn, authReady = true, onRequestSignIn }) {
   const tabs = [
     { id: 'home', label: 'Home', icon: HomeIcon },
     { id: 'search', label: 'Search', icon: SearchIcon },
@@ -40,11 +41,11 @@ export default function TopNav({ activeTab, onTabChange, onOpenProfile }) {
       }`}
     >
       <div className="flex items-center gap-3">
-        <div className="flex flex-1 items-center justify-between rounded-2xl border border-hush-500/30 bg-base-900/70 px-4 py-3 shadow-lg shadow-hush-500/5">
-          <span className="font-display text-lg font-medium text-zinc-50">
+        <div className="flex min-w-0 flex-1 items-center justify-between rounded-2xl border border-hush-500/30 bg-base-900/70 px-3 py-3 shadow-lg shadow-hush-500/5">
+          <span className="truncate font-display text-lg font-medium text-zinc-50">
             Unspoken
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center">
             {tabs.map((tab) => {
               const Icon = tab.icon
               const active = activeTab === tab.id
@@ -54,7 +55,7 @@ export default function TopNav({ activeTab, onTabChange, onOpenProfile }) {
                   type="button"
                   onClick={() => onTabChange(tab.id)}
                   aria-pressed={active}
-                  className={`flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition ${
+                  className={`flex items-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-medium transition ${
                     active ? 'text-hush-300' : 'text-zinc-500 hover:text-zinc-300'
                   }`}
                 >
@@ -66,17 +67,36 @@ export default function TopNav({ activeTab, onTabChange, onOpenProfile }) {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenProfile}
-          className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-base-900/70 px-4 py-3 text-zinc-400 hover:text-zinc-200"
-        >
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <circle cx="12" cy="8" r="4" />
-            <path strokeLinecap="round" d="M4 20c0-4 3.5-6 8-6s8 2 8 6" />
-          </svg>
-          <span className="text-[10px] font-medium tracking-wide">PROFILE</span>
-        </button>
+        {!authReady ? null : isSignedIn ? (
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="flex shrink-0 flex-col items-center gap-1 rounded-2xl border border-white/10 bg-base-900/70 px-3 py-3 text-zinc-400 hover:text-zinc-200"
+          >
+            <Avatar
+              pseudoId={pseudoId}
+              size={28}
+              fallback={
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
+                  <circle cx="12" cy="8" r="4" />
+                  <path strokeLinecap="round" d="M4 20c0-4 3.5-6 8-6s8 2 8 6" />
+                </svg>
+              }
+            />
+            <span className="text-[10px] font-medium tracking-wide">PROFILE</span>
+          </button>
+        ) : (
+          // Visitors without an account don't get a profile button. They do
+          // need *some* way to create/enter an account (messages and
+          // profile pictures require one), so this replaces it.
+          <button
+            type="button"
+            onClick={onRequestSignIn}
+            className="shrink-0 rounded-2xl border border-hush-500/30 bg-hush-500/10 px-3 py-3 text-xs font-medium text-hush-300 hover:bg-hush-500/20"
+          >
+            Sign in
+          </button>
+        )}
       </div>
     </div>
   )

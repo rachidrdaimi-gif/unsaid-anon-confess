@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { signOut } from '../lib/authIdentity'
 import { avatarStoragePath, setAvatarLocal } from '../lib/avatarCache'
-import { compressImageToJpeg } from '../lib/imageCompress'
 import Avatar from './Avatar'
 import ConfessionCard from './ConfessionCard'
 
@@ -44,7 +43,7 @@ function EngagementChart({ posts }) {
 // Client-side ceiling before we even try to compress — no point decoding a
 // 40MB photo just to find out it won't fit. The real, unspoofable limit is
 // the storage bucket's file_size_limit (1MB) enforced server-side.
-const MAX_SOURCE_BYTES = 15 * 1024 * 1024
+const MAX_SOURCE_BYTES = 10 * 1024 * 1024
 
 /**
  * Shows a pseudo_id's public profile: their picture (if any), stats, and
@@ -71,6 +70,7 @@ export default function ProfilePanel({
   onBlock,
   isAdmin,
   onOpenProfile,
+  onMessage,
 }) {
   const isOwnProfile = pseudoId === ownPseudoId
 
@@ -198,18 +198,6 @@ export default function ProfilePanel({
     setAvatarBusy(true)
     setAvatarError(null)
 
-    let jpegBlob
-    try {
-      // Downscales + re-encodes to a JPEG under 1MB entirely in the
-      // browser, so this always fits the storage bucket's limit without
-      // asking the user to resize anything themselves.
-      jpegBlob = await compressImageToJpeg(file, { maxDimension: 512, maxBytes: 1024 * 1024 })
-    } catch (err) {
-      setAvatarBusy(false)
-      setAvatarError(err.message || "Couldn't process that image.")
-      return
-    }
-
     // Always the SAME path for this pseudo_id, upserted — there is only
     // ever one avatar object per account in storage, so changing your
     // picture fully replaces the old one instead of leaving it behind.
@@ -217,7 +205,7 @@ export default function ProfilePanel({
 
     const { error: uploadError } = await supabase.storage
       .from('avatars')
-      .upload(path, jpegBlob, { upsert: true, cacheControl: '3600', contentType: 'image/jpeg' })
+      .upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type })
 
     if (uploadError) {
       setAvatarBusy(false)
@@ -290,6 +278,18 @@ export default function ProfilePanel({
           </div>
           <div className="min-w-0">
             <div className="truncate text-sm font-medium text-hush-400">{pseudoId}</div>
+            {!isOwnProfile && (
+              <button
+                type="button"
+                onClick={() => onMessage?.(pseudoId)}
+                className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-hush-500/30 bg-hush-500/10 px-3 py-1 text-xs text-hush-300 hover:bg-hush-500/20"
+              >
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 7l9 6 9-6M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" />
+                </svg>
+                Message
+              </button>
+            )}
             {isOwnProfile && !isSignedIn && (
               <div className="text-xs text-zinc-500">Sign in to add a profile picture</div>
             )}

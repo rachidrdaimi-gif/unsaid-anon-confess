@@ -17,7 +17,7 @@ export function pseudoIdToFolder(pseudoId) {
 }
 
 /** The single, fixed storage path a pseudo_id's avatar always lives at.
- * Every upload overwrites this same object (see imageCompress.js) — there
+ * Every upload overwrites this same object — there
  * is never a second, orphaned file left behind after someone changes
  * their picture. */
 export function avatarStoragePath(pseudoId) {
