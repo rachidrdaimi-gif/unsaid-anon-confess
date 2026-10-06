@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient'
+import { encryptFor, decryptFrom, getActiveUser } from './e2ee'
 
 // Turns the database's raw error text into something a person can act on.
 function friendlyMessageError(error) {
@@ -20,6 +21,12 @@ function friendlyMessageError(error) {
   if (msg.includes('sign in')) {
     return 'Please sign in to send messages.'
   }
+  if (msg.includes('must be encrypted')) {
+    return 'Please refresh the app to update it, then try again.'
+  }
+  if (msg.includes('too long')) {
+    return 'That message is too long.'
+  }
   if (msg.includes('1 to 1000')) {
     return 'Messages must be between 1 and 1000 characters.'
   }
@@ -29,7 +36,14 @@ function friendlyMessageError(error) {
 export async function fetchConversations() {
   const { data, error } = await supabase.rpc('my_conversations')
   if (error) throw new Error(friendlyMessageError(error))
-  return data ?? []
+  const own = getActiveUser()
+  // Previews are decrypted here, on this device — the server only has ciphertext.
+  return Promise.all(
+    (data ?? []).map(async (c) => ({
+      ...c,
+      last_content: await decryptFrom(own, c.other_pseudo, c.last_content),
+    })),
+  )
 }
 
 export async function fetchThread(otherPseudo) {
@@ -38,13 +52,20 @@ export async function fetchThread(otherPseudo) {
     p_limit: 200,
   })
   if (error) throw new Error(friendlyMessageError(error))
-  return data ?? []
+  const own = getActiveUser()
+  return Promise.all(
+    (data ?? []).map(async (m) => ({
+      ...m,
+      content: await decryptFrom(own, otherPseudo, m.content),
+    })),
+  )
 }
 
 export async function sendMessage(otherPseudo, content) {
+  const encrypted = await encryptFor(getActiveUser(), otherPseudo, content)
   const { error } = await supabase.rpc('send_direct_message', {
     p_to: otherPseudo,
-    p_content: content,
+    p_content: encrypted,
   })
   if (error) throw new Error(friendlyMessageError(error))
 }

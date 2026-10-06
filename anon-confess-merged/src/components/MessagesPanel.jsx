@@ -11,6 +11,8 @@ import {
   setMessageBlock,
 } from '../lib/messages'
 import Avatar from './Avatar'
+import EncryptionGate from './EncryptionGate'
+import { fingerprint } from '../lib/e2ee'
 
 const PSEUDO_RE = /^#AnonUser[0-9]{4,6}$/
 const MAX_LEN = 100
@@ -36,6 +38,7 @@ export default function MessagesPanel({ ownPseudoId, initialPeer, onClose }) {
   const [peer, setPeer] = useState(initialPeer ?? null)
 
   return (
+    <EncryptionGate ownPseudoId={ownPseudoId} onClose={onClose}>
     <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 sm:items-start sm:p-4">
       <div className="flex h-dvh w-full max-w-xl flex-col border-white/10 bg-base-900 sm:mt-10 sm:h-[80vh] sm:rounded-2xl sm:border">
         {peer ? (
@@ -51,6 +54,7 @@ export default function MessagesPanel({ ownPseudoId, initialPeer, onClose }) {
         )}
       </div>
     </div>
+    </EncryptionGate>
   )
 }
 
@@ -101,7 +105,7 @@ function ConversationList({ onOpen, onClose }) {
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <p className="mb-4 rounded-xl border border-white/5 bg-base-850 p-3 text-[11px] leading-relaxed text-zinc-500">
           Talk privately with other people here — share what you're going through and be kind.
-          Messages are private to the two of you but not end-to-end encrypted. If you or someone
+          Messages are end-to-end encrypted: only the two of you can read them. If you or someone
           you're talking to may be in danger, please contact your local emergency services.
         </p>
 
@@ -185,6 +189,7 @@ function Thread({ ownPseudoId, peer, onBack, onClose }) {
   const [accepting, setAccepting] = useState(true)
   const [iBlocked, setIBlocked] = useState(false)
   const [blockBusy, setBlockBusy] = useState(false)
+  const [fp, setFp] = useState(null)
   const bottomRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -203,6 +208,7 @@ function Thread({ ownPseudoId, peer, onBack, onClose }) {
   useEffect(() => {
     load()
     canMessage(peer).then(setAccepting)
+    fingerprint(ownPseudoId, peer).then(setFp).catch(() => setFp(null))
     isBlockingMessagesFrom(peer).then(setIBlocked)
 
     // Live updates, with a slow poll as a safety net in case realtime
@@ -274,7 +280,14 @@ function Thread({ ownPseudoId, peer, onBack, onClose }) {
           </svg>
         </button>
         <Avatar pseudoId={peer} size={32} />
-        <div className="min-w-0 flex-1 truncate text-sm font-medium text-hush-400">{peer}</div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-hush-400">{peer}</div>
+          {fp && (
+            <div className="truncate text-[10px] text-zinc-600" title="Compare this code with the other person to be sure nobody can intercept your messages">
+              🔒 {fp}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={handleToggleBlock}
