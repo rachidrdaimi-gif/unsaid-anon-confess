@@ -162,7 +162,7 @@ export async function unlockKeys(own, passphrase) {
       unb64(bundle.wrapped_private),
     )
   } catch {
-    throw new Error('Wrong passphrase. Please try again.')
+    throw new Error('Wrong PIN. Please try again.')
   }
   const priv = await crypto.subtle.importKey('pkcs8', pkcs8, CURVE, false, ['deriveBits'])
   await idbSet(own, { priv, pub: bundle.public_key })

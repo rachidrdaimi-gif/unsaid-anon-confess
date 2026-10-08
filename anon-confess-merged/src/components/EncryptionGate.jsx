@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { getKeyState, setupKeys, unlockKeys, setActiveUser } from '../lib/e2ee'
 
+// Digits only. 6 is the minimum: shorter PINs can be guessed far too easily.
+const MIN_PIN = 6
+const MAX_PIN = 12
+const digitsOnly = (v) => v.replace(/\D/g, '').slice(0, MAX_PIN)
+
 const shell = 'fixed inset-0 z-50 flex items-stretch justify-center bg-black/70 sm:items-start sm:p-4'
 const card =
   'flex h-dvh w-full max-w-xl flex-col border-white/10 bg-base-900 sm:mt-10 sm:h-[80vh] sm:rounded-2xl sm:border'
@@ -39,8 +44,8 @@ export default function EncryptionGate({ ownPseudoId, onClose, children }) {
 
   async function handleSetup(e) {
     e.preventDefault()
-    if (pass.length < 8) return setError('Use at least 8 characters.')
-    if (pass !== pass2) return setError("The two passphrases don't match.")
+    if (pass.length < MIN_PIN) return setError(`Use at least ${MIN_PIN} digits.`)
+    if (pass !== pass2) return setError("The two PINs don't match.")
     setBusy(true)
     setError(null)
     try {
@@ -86,27 +91,31 @@ export default function EncryptionGate({ ownPseudoId, onClose, children }) {
             <form onSubmit={handleSetup} className="space-y-3">
               <p className="text-xs leading-relaxed text-zinc-400">
                 Your messages are end-to-end encrypted: only you and the other person can read
-                them — not even the site's owner. Choose a passphrase to lock your key. You'll need
-                it on a new phone or after clearing your browser.
+                them. Choose a numeric PIN for this account. You'll need it on a new phone or
+                after clearing your browser.
               </p>
               <p className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] leading-relaxed text-amber-300/80">
                 {restart
                   ? 'Starting over creates new keys: your old messages will become unreadable.'
-                  : 'If you forget it, nobody can recover your old messages. Write it down.'}
+                  : 'If you forget your PIN, nobody can recover your old messages. Avoid obvious numbers like 123456 or your birth year.'}
               </p>
               <input
                 type="password"
                 value={pass}
-                onChange={(e) => setPass(e.target.value)}
-                placeholder="Passphrase (8+ characters)"
+                onChange={(e) => setPass(digitsOnly(e.target.value))}
+                placeholder={`PIN (${MIN_PIN}-${MAX_PIN} digits)`}
+                inputMode="numeric"
+                pattern="[0-9]*"
                 autoComplete="new-password"
                 className={input}
               />
               <input
                 type="password"
                 value={pass2}
-                onChange={(e) => setPass2(e.target.value)}
-                placeholder="Repeat passphrase"
+                onChange={(e) => setPass2(digitsOnly(e.target.value))}
+                placeholder="Repeat PIN"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 autoComplete="new-password"
                 className={input}
               />
@@ -136,14 +145,15 @@ export default function EncryptionGate({ ownPseudoId, onClose, children }) {
           {state === 'locked' && !restart && (
             <form onSubmit={handleUnlock} className="space-y-3">
               <p className="text-xs leading-relaxed text-zinc-400">
-                Enter your messages passphrase to unlock your private messages on this device. You
-                only need to do this once per device.
+                Enter your messages PIN to unlock your private messages on this device. You only
+                need to do this once per device.
               </p>
               <input
                 type="password"
                 value={pass}
                 onChange={(e) => setPass(e.target.value)}
-                placeholder="Passphrase"
+                placeholder="PIN"
+                inputMode="numeric"
                 autoComplete="current-password"
                 className={input}
               />
